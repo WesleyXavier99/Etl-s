@@ -1,0 +1,819 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>extractOSAggmanFromEngeman</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description/>
+    <extended_description/>
+    <pipeline_version/>
+    <pipeline_type>Normal</pipeline_type>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>-</created_user>
+    <created_date>2023/04/27 09:18:36.780</created_date>
+    <modified_user>-</modified_user>
+    <modified_date>2023/04/27 09:18:36.780</modified_date>
+  </info>
+  <notepads>
+  </notepads>
+  <order>
+    <hop>
+      <from>Obtem OsAggman</from>
+      <to>Renomeando Campos</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Renomeando Campos</from>
+      <to>Data Carga</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Data Carga</from>
+      <to>Ordenando</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Ordenando</from>
+      <to>Parquet Output </to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Data Carga</name>
+    <type>SystemInfo</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <field>
+        <name>dataCarga</name>
+        <type>system date (variable)</type>
+      </field>
+    </fields>
+    <attributes/>
+    <GUI>
+      <xloc>512</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Obtem OsAggman</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>DBO_ORACLE_ENGEMAN</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>SELECT
+	QUERYA.*,
+	(CASE
+		WHEN PERIODOBACKLOG &lt;= 5 
+              THEN 'ATE 5 DIAS'
+		WHEN PERIODOBACKLOG>5
+		AND PERIODOBACKLOG &lt;= 15
+              THEN 'ATE 15 DIAS'
+		WHEN PERIODOBACKLOG>15
+		AND PERIODOBACKLOG &lt;= 30
+              THEN 'ATE 1 MÊS'
+		WHEN PERIODOBACKLOG>30
+		AND PERIODOBACKLOG &lt;= 120
+              THEN 'ATE 1 TRIMESTRE'
+		WHEN PERIODOBACKLOG>60
+		AND PERIODOBACKLOG &lt;= 180
+              THEN 'ATE 1 SEMESTRE'
+		WHEN PERIODOBACKLOG>180
+		AND PERIODOBACKLOG &lt;= 365
+              THEN 'ATE 1 ANO'
+		WHEN PERIODOBACKLOG>365
+		AND PERIODOBACKLOG &lt;= 730
+              THEN 'ATE 2 ANOS'
+		WHEN PERIODOBACKLOG>730
+		AND PERIODOBACKLOG &lt;= 365 * 5
+              THEN 'ATE 5 ANOS'
+		WHEN PERIODOBACKLOG>365 * 5
+		AND PERIODOBACKLOG &lt;= 365 * 10
+              THEN 'ATE 10 ANOS'
+		ELSE 'MAIS DE 10 ANOS'
+	END) AS TEMPOBACKLOG
+FROM
+	(
+	SELECT
+		QA.*,
+		(CASE
+			WHEN QA.EXECUCAO LIKE 'BACKLOG%' THEN ROUND(CURRENT_DATE - TO_DATE(QA.DATPREV))
+			ELSE 0
+		END) AS PERIODOBACKLOG
+	FROM
+		(
+		SELECT
+			CAST(SE.CODSET AS INT) AS CODSET,
+			TM.CODTIPMAN,
+			FL.CODFIL AS CODFIL,
+			PM.CODPLA AS CODPLA,
+			AP.CODAPL,
+			TE.U_PK_REDUZIDO AS CODDISCIPLINA,
+			AP.R_USER_CLACOM_U_PK_CODIGO AS CODCRITICIDADE,
+			CAST(OS.TAG AS INT) AS NUMOS,
+			OS.R_USER_STATUS_U_PK_CODSTAT AS STATUS,
+			FL.RAZSOC AS NAVIO,
+			OS.OBS AS OSDESCRICAO,
+			OS.PRISUB AS PRIORIDADE,
+			TO_DATE(TO_CHAR(OS.DATGER, 'YYYY/MM/DD'), 'YYYY/MM/DD') AS DATGERFORMT,
+			TO_DATE(TO_CHAR(OS.DATENT, 'YYYY/MM/DD'), 'YYYY/MM/DD') AS DATPREVFORMT,
+			OS.DATGER,
+			OS.DATENT AS DATPREV,
+			PM.TAG AS TAGPLANO,
+			AP.DESCRICAO AS EQUIPAMENTO,
+			QG.DESCRICAO AS GRUPOEQUIP,
+			(CASE
+				WHEN CC.U_DESC IS NOT NULL THEN REPLACE(CC.U_DESC, 'CRITICIDADE ', '')
+				ELSE 'NAO INFORMADO'
+			END) AS CRITICIDADE,
+			(CASE
+				WHEN (TO_DATE(DATGER)-TO_DATE(LAST_DAY(ADD_MONTHS(SYSDATE, -1))))>0
+				AND OS.STATORD = 'A' THEN 'CARTEIRA'
+				WHEN (TO_DATE(DATGER)-TO_DATE(LAST_DAY(ADD_MONTHS(SYSDATE, -1))))>0
+				AND OS.STATORD IN ('F', 'C') THEN 'ENCERRADA'
+				ELSE
+              (CASE
+					WHEN (TO_DATE(DATENT)-TO_DATE(LAST_DAY(ADD_MONTHS(SYSDATE, -1))))>0
+					AND OS.STATORD = 'A' THEN 'CARTEIRA'
+					WHEN (TO_DATE(DATENT)-TO_DATE(LAST_DAY(ADD_MONTHS(SYSDATE, -1))))&lt;0
+					AND OS.STATORD = 'A' THEN 'BACKLOG'
+					ELSE
+                        (CASE
+						WHEN (TO_DATE(DATFEC)-TO_DATE(LAST_DAY(ADD_MONTHS(SYSDATE, -1))))&lt;0 THEN 'ENCERRADA'
+						ELSE 'ENCERRADA COM ATRASO'
+					END)
+				END)
+			END) AS EXECUCAO,
+			TE.U_DESCRIC AS DISCIPLINA,
+			TM.DESCRICAO AS TIPO_MANUT,
+			SE.DESCRICAO AS SETOREXEC
+		FROM
+			ENGEMANTVVLOGIN.ORDSERV OS
+		LEFT JOIN ENGEMANTVVLOGIN.PLAMANUT PM ON
+			PM.CODPLA = OS.CODPLA
+		LEFT JOIN ENGEMANTVVLOGIN.APLIC AP ON
+			AP.CODAPL = OS.CODAPL
+		LEFT JOIN ENGEMANTVVLOGIN.FILIAL FL ON
+			FL.CODFIL = AP.CODFIL
+		LEFT JOIN ENGEMANTVVLOGIN.USER_CLACOM CC ON
+			AP.R_USER_CLACOM_U_PK_CODIGO = CC.U_PK_CODIGO
+		LEFT JOIN ENGEMANTVVLOGIN.USER_TIPENG TE ON
+			TE.U_PK_REDUZIDO = OS.R_USER_TIPENG_U_PK_REDUZIDO
+		LEFT JOIN ENGEMANTVVLOGIN.TIPMANUT TM ON
+			TM.CODTIPMAN = OS.CODTIPMAN
+		LEFT JOIN ENGEMANTVVLOGIN.SETEXE SE ON
+			SE.CODSET = OS.CODSET
+		LEFT JOIN (
+			SELECT
+				CODAPL,
+				SUBSTR(TAGGRU, 1, 7) AS CODGRUP
+			FROM
+				ENGEMANTVVLOGIN.APLIC) QAXG ON
+			QAXG.CODAPL = AP.CODAPL
+		LEFT JOIN (
+			SELECT
+				TAG,
+				DESCRICAO,
+				TAGGRU AS CODGRUP
+			FROM
+				ENGEMANTVVLOGIN.APLIC
+			WHERE
+				LENGTH(TAGGRU)= 7
+					AND DESCRICAO LIKE '%SISTEMA%') QG ON
+			QAXG.CODGRUP = QG.CODGRUP
+		WHERE
+			OS.CODEMP = 1
+			AND FL.CODFIL IN (8, 58, 61, 72, 74, 75) 
+) QA
+	WHERE
+		STATUS LIKE '%AGGMAN%'
+		AND EXECUCAO LIKE 'BACKLOG'
+	ORDER BY
+		NAVIO,
+		DATPREV DESC,
+		EQUIPAMENTO
+) QUERYA</sql>
+    <variables_active>N</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>192</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Ordenando</name>
+    <type>SortRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <directory>${java.io.tmpdir}</directory>
+    <prefix>out</prefix>
+    <sort_size>1000000</sort_size>
+    <free_memory/>
+    <compress>N</compress>
+    <compress_variable/>
+    <unique_rows>N</unique_rows>
+    <fields>
+      <field>
+        <name>numeroOS</name>
+        <ascending>N</ascending>
+        <case_sensitive>N</case_sensitive>
+        <collator_enabled>N</collator_enabled>
+        <collator_strength>0</collator_strength>
+        <presorted>N</presorted>
+      </field>
+    </fields>
+    <attributes/>
+    <GUI>
+      <xloc>656</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Parquet Output </name>
+    <type>ParquetFileOutput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <compression_codec>UNCOMPRESSED</compression_codec>
+    <data_page_size>1048576</data_page_size>
+    <dictionary_page_size>1048576</dictionary_page_size>
+    <fields>
+      <field>
+        <source_field>identificacaoSetorExecutante</source_field>
+        <target_field>identificacaoSetorExecutante</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoTipoManutencao</source_field>
+        <target_field>identificacaoTipoManutencao</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoFilial</source_field>
+        <target_field>identificacaoFilial</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoPlanoManutencao</source_field>
+        <target_field>identificacaoPlanoManutencao</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoEquipamento</source_field>
+        <target_field>identificacaoEquipamento</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoDisciplina</source_field>
+        <target_field>identificacaoDisciplina</target_field>
+      </field>
+      <field>
+        <source_field>identificacaoCriticidade</source_field>
+        <target_field>identificacaoCriticidade</target_field>
+      </field>
+      <field>
+        <source_field>numeroOS</source_field>
+        <target_field>numeroOS</target_field>
+      </field>
+      <field>
+        <source_field>status</source_field>
+        <target_field>status</target_field>
+      </field>
+      <field>
+        <source_field>navio</source_field>
+        <target_field>navio</target_field>
+      </field>
+      <field>
+        <source_field>descricaoOS</source_field>
+        <target_field>descricaoOS</target_field>
+      </field>
+      <field>
+        <source_field>prioridade</source_field>
+        <target_field>prioridade</target_field>
+      </field>
+      <field>
+        <source_field>dataGerada</source_field>
+        <target_field>dataGerada</target_field>
+      </field>
+      <field>
+        <source_field>dataPrevista</source_field>
+        <target_field>dataPrevista</target_field>
+      </field>
+      <field>
+        <source_field>tagPlano</source_field>
+        <target_field>tagPlano</target_field>
+      </field>
+      <field>
+        <source_field>equipamento</source_field>
+        <target_field>equipamento</target_field>
+      </field>
+      <field>
+        <source_field>grupoEquipamento</source_field>
+        <target_field>grupoEquipamento</target_field>
+      </field>
+      <field>
+        <source_field>criticidade</source_field>
+        <target_field>criticidade</target_field>
+      </field>
+      <field>
+        <source_field>execucao</source_field>
+        <target_field>execucao</target_field>
+      </field>
+      <field>
+        <source_field>disciplina</source_field>
+        <target_field>disciplina</target_field>
+      </field>
+      <field>
+        <source_field>tipoManutencao</source_field>
+        <target_field>tipoManutencao</target_field>
+      </field>
+      <field>
+        <source_field>setorExecutante</source_field>
+        <target_field>setorExecutante</target_field>
+      </field>
+      <field>
+        <source_field>periodoBacklog</source_field>
+        <target_field>periodoBacklog</target_field>
+      </field>
+      <field>
+        <source_field>tempoBacklog</source_field>
+        <target_field>tempoBacklog</target_field>
+      </field>
+      <field>
+        <source_field>dataCarga</source_field>
+        <target_field>dataCarga</target_field>
+      </field>
+    </fields>
+    <filename_base>${LAKEHOUSE}/GerenciaDeManutencao/ManutencaoDeFrota/OSAggman</filename_base>
+    <filename_create_parent_folders>Y</filename_create_parent_folders>
+    <filename_datetime_format>yyyyMMdd-HHmmss</filename_datetime_format>
+    <filename_ext>parquet</filename_ext>
+    <filename_include_copy>N</filename_include_copy>
+    <filename_include_date>N</filename_include_date>
+    <filename_include_datetime>N</filename_include_datetime>
+    <filename_include_split>N</filename_include_split>
+    <filename_include_time>N</filename_include_time>
+    <filename_split_size>1000000</filename_split_size>
+    <row_group_size>20000</row_group_size>
+    <version>1.0</version>
+    <attributes/>
+    <GUI>
+      <xloc>800</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Renomeando Campos</name>
+    <type>SelectValues</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <select_unspecified>N</select_unspecified>
+      <meta>
+        <name>CODSET</name>
+        <rename>identificacaoSetorExecutante</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>0</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODTIPMAN</name>
+        <rename>identificacaoTipoManutencao</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODFIL</name>
+        <rename>identificacaoFilial</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODPLA</name>
+        <rename>identificacaoPlanoManutencao</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODAPL</name>
+        <rename>identificacaoEquipamento</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODDISCIPLINA</name>
+        <rename>identificacaoDisciplina</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CODCRITICIDADE</name>
+        <rename>identificacaoCriticidade</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>NUMOS</name>
+        <rename>numeroOS</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>0</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>STATUS</name>
+        <rename>status</rename>
+        <type>String</type>
+        <length>255</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>NAVIO</name>
+        <rename>navio</rename>
+        <type>String</type>
+        <length>255</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>OSDESCRICAO</name>
+        <rename>descricaoOS</rename>
+        <type>String</type>
+        <length>2000</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>PRIORIDADE</name>
+        <rename>prioridade</rename>
+        <type>Integer</type>
+        <length>38</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>DATGER</name>
+        <rename>dataGerada</rename>
+        <type>Date</type>
+        <length>3</length>
+        <precision>-2</precision>
+        <conversion_mask>yyyy-MM-dd HH:mm:ss</conversion_mask>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>DATPREV</name>
+        <rename>dataPrevista</rename>
+        <type>Date</type>
+        <length>3</length>
+        <precision>-2</precision>
+        <conversion_mask>yyyy-MM-dd HH:mm:ss</conversion_mask>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>TAGPLANO</name>
+        <rename>tagPlano</rename>
+        <type>String</type>
+        <length>20</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>EQUIPAMENTO</name>
+        <rename>equipamento</rename>
+        <type>String</type>
+        <length>100</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>GRUPOEQUIP</name>
+        <rename>grupoEquipamento</rename>
+        <type>String</type>
+        <length>100</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>CRITICIDADE</name>
+        <rename>criticidade</rename>
+        <type>String</type>
+        <length>250</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>EXECUCAO</name>
+        <rename>execucao</rename>
+        <type>String</type>
+        <length>20</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>DISCIPLINA</name>
+        <rename>disciplina</rename>
+        <type>String</type>
+        <length>50</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>TIPO_MANUT</name>
+        <rename>tipoManutencao</rename>
+        <type>String</type>
+        <length>100</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>SETOREXEC</name>
+        <rename>setorExecutante</rename>
+        <type>String</type>
+        <length>100</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>PERIODOBACKLOG</name>
+        <rename>periodoBacklog</rename>
+        <type>Integer</type>
+        <length>-2</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+      <meta>
+        <name>TEMPOBACKLOG</name>
+        <rename>tempoBacklog</rename>
+        <type>String</type>
+        <length>15</length>
+        <precision>-2</precision>
+        <conversion_mask/>
+        <date_format_lenient>false</date_format_lenient>
+        <date_format_locale/>
+        <date_format_timezone/>
+        <lenient_string_to_number>false</lenient_string_to_number>
+        <encoding/>
+        <decimal_symbol/>
+        <grouping_symbol/>
+        <currency_symbol/>
+        <storage_type/>
+      </meta>
+    </fields>
+    <attributes/>
+    <GUI>
+      <xloc>352</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>
